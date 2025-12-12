@@ -1,7 +1,22 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { MaintenanceRecord } from "../types";
 
-const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+// --- CONFIGURACIÓN DE GEMINI ---
+// 1. Consigue tu clave gratis en: https://aistudio.google.com/app/apikey
+// 2. Pégala abajo dentro de las comillas, sustituyendo el texto.
+// 3. IMPORTANTE: En la consola de Google Cloud, restringe esta clave a tu dominio web (Referrer HTTP) para seguridad.
+
+const GEMINI_API_KEY = "PEGAR_TU_CLAVE_AQUI"; 
+
+const getAI = () => {
+  // Si el usuario no ha puesto la clave, intentamos usar la variable de entorno por si acaso
+  const apiKey = GEMINI_API_KEY !== "PEGAR_TU_CLAVE_AQUI" ? GEMINI_API_KEY : process.env.API_KEY;
+  
+  if (!apiKey) {
+    throw new Error("Falta la API Key de Gemini. Configúrala en services/geminiService.ts");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 export const GeminiService = {
   // Use Gemini to analyze data and suggest improvements (The "Profiling" request)
@@ -74,9 +89,12 @@ export const GeminiService = {
         contents: prompt,
       });
       return response.text;
-    } catch (error) {
+    } catch (error: any) {
       console.error("Gemini Error:", error);
-      return "Hubo un error de conexión al procesar tantos datos. Intenta filtrar tu búsqueda o prueba de nuevo.";
+      if (error.message.includes("Falta la API Key")) {
+        return "⚠️ CONFIGURACIÓN INCOMPLETA: Necesitas añadir una API Key de Gemini en el archivo 'services/geminiService.ts' para usar la IA.";
+      }
+      return "Hubo un error de conexión con la IA. Intenta de nuevo más tarde.";
     }
   },
 
@@ -120,8 +138,11 @@ export const GeminiService = {
 
       const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(cleanText);
-    } catch (error) {
+    } catch (error: any) {
       console.error("OCR Error:", error);
+      if (error.message.includes("Falta la API Key")) {
+        throw new Error("Falta configurar la API Key de Gemini");
+      }
       throw new Error("No se pudo procesar la imagen.");
     }
   },
