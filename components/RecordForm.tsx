@@ -1,4 +1,4 @@
-mport React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { DeviceType, MaintenanceRecord, ConsumptionReadings, EquipmentStatus } from '../types';
 import { Save, X, Loader2, AlertTriangle, Zap, CheckCircle2, Activity, Calculator, Watch, Play, Square, RotateCcw, Timer, Lock, Unlock, ShieldCheck, MapPin, Waves } from 'lucide-react';
 
