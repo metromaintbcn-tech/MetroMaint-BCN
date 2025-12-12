@@ -12,7 +12,6 @@ import {
   Edit2, 
   LayoutGrid, 
   List as ListIcon, 
-  Zap, 
   Bot,
   Menu,
   X,
@@ -29,17 +28,18 @@ import {
   ChevronRight,
   ScanLine,
   Loader2,
-  Timer,
   UploadCloud,
-  Trash,
   Download,
-  MessageSquare,
   MapPin,
   Camera,
   History,
-  ArrowRight,
   Clock,
-  Smartphone // Icono para instalar
+  Lock,
+  Unlock,
+  Zap,
+  Settings,
+  Terminal,
+  Check
 } from 'lucide-react';
 
 export default function App() {
@@ -47,14 +47,14 @@ export default function App() {
   const [view, setView] = useState<ViewState>('LIST');
   const [editingRecord, setEditingRecord] = useState<MaintenanceRecord | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showAllRecords, setShowAllRecords] = useState(false); // NEW STATE
+  const [showAllRecords, setShowAllRecords] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   
   // Navigation Memory State
   const [returnToAI, setReturnToAI] = useState(false);
 
-  // AI Persistence State (To keep results when navigating away)
+  // AI Persistence State
   const [aiPersistence, setAiPersistence] = useState<{query: string, response: string | null}>({
     query: '',
     response: null
@@ -82,26 +82,18 @@ export default function App() {
   // CSV Import State
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  // --- PWA INSTALL STATE ---
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [showInstallBtn, setShowInstallBtn] = useState(false);
+  // Menu Refs for Click Outside
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+
+  // --- DEVELOPER MODE STATE ---
+  const [devMode, setDevMode] = useState(false);
+  const [showPinInput, setShowPinInput] = useState(false);
+  const [pinInputValue, setPinInputValue] = useState('');
 
   useEffect(() => {
     StorageService.seedData();
     loadData();
-
-    // Listener para capturar el evento de instalación (Chrome/Android)
-    const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setShowInstallBtn(true);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
   }, []);
 
   // Auto-hide toast after 3 seconds
@@ -111,6 +103,30 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [toast]);
+
+  // Click Outside Menu Handler
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (
+        mobileMenuOpen &&
+        menuRef.current &&
+        !menuRef.current.contains(event.target as Node) &&
+        menuBtnRef.current &&
+        !menuBtnRef.current.contains(event.target as Node)
+      ) {
+        setMobileMenuOpen(false);
+      }
+    };
+
+    // Añadimos 'touchstart' para mejorar respuesta en móviles
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [mobileMenuOpen]);
 
   // Reset to page 1 when search term changes or showAll mode toggles
   useEffect(() => {
@@ -141,14 +157,23 @@ export default function App() {
     setData(records);
   };
 
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setShowInstallBtn(false);
-      setDeferredPrompt(null);
-    }
+  // --- DEVELOPER AUTH ---
+  const handleUnlockDevMode = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (pinInputValue === '8386') {
+          setDevMode(true);
+          setShowPinInput(false);
+          setPinInputValue('');
+          showToast('Modo Desarrollador activado', 'success');
+      } else {
+          showToast('PIN Incorrecto', 'error');
+          setPinInputValue('');
+      }
+  };
+
+  const handleLockDevMode = () => {
+      setDevMode(false);
+      showToast('Modo Desarrollador desactivado', 'info');
   };
 
   const handleSave = async (record: MaintenanceRecord) => {
@@ -204,7 +229,8 @@ export default function App() {
   const handleDeleteClick = (record: MaintenanceRecord) => {
     // Open the custom modal instead of using window.confirm
     setRecordToDelete(record);
-    setDeleteCountdown(5); // Start safety timer
+    // CHANGE: Increased from 5 to 10 seconds as requested
+    setDeleteCountdown(10); 
   };
 
   const handleEdit = (record: MaintenanceRecord) => {
@@ -293,17 +319,12 @@ export default function App() {
                 const line = lines[i].trim();
                 if (!line) continue;
 
-                // Limpiamos comillas extra y espacios
                 const cols = line.split(separator).map(c => c.trim().replace(/^"|"$/g, ''));
                 
-                // Necesitamos al menos Estación (0) y Equipo (1)
                 if (cols.length >= 2) {
                     const station = cols[0];
                     const deviceCode = cols[1];
                     let nes = cols[2] || '';
-                    
-                    // CORRECCIÓN LOCALIZACIÓN:
-                    // Si no existe la columna o está vacía, NO pasamos undefined, usamos string vacío temporal o condicional
                     const rawLocation = cols[3];
                     const location = (rawLocation && rawLocation.trim() !== '') ? rawLocation : undefined;
 
@@ -313,7 +334,6 @@ export default function App() {
                         nes = nes.replace(/^NES\s*/i, '').replace(/^"|"$/g, '');
                     }
 
-                    // Inferencia del Tipo
                     let deviceType = DeviceType.OTHER;
                     const prefix = deviceCode.substring(0, 2).toUpperCase();
                     if (prefix === 'PA' || prefix === 'PE') deviceType = DeviceType.POZO_AGOTAMIENTO;
@@ -335,10 +355,7 @@ export default function App() {
                         notes: ''
                     };
                     
-                    // Solo añadimos location si existe valor real
-                    if (location) {
-                        record.location = location;
-                    }
+                    if (location) record.location = location;
 
                     newRecords.push(record);
                 }
@@ -357,7 +374,7 @@ export default function App() {
             showToast('Error crítico al leer el archivo CSV.', 'error');
         }
     };
-    reader.readAsText(file); // Leemos como texto (UTF-8 por defecto)
+    reader.readAsText(file);
     if (importInputRef.current) importInputRef.current.value = '';
   };
 
@@ -671,17 +688,17 @@ export default function App() {
     <button
       onClick={() => {
         setView(target);
-        setMobileMenuOpen(false);
-        setShowAllRecords(false); // Reset "Show All" when navigating
+        setShowAllRecords(false);
+        setMobileMenuOpen(false); // MEJORA: Cerrar menú al navegar
       }}
-      className={`flex items-center space-x-2 px-4 py-2 rounded-md transition-colors w-full md:w-auto ${
+      className={`flex flex-col md:flex-row items-center justify-center md:space-x-2 px-3 py-2 rounded-md transition-colors ${
         active 
-          ? 'bg-red-700 text-white' 
-          : 'text-gray-300 hover:bg-slate-700 hover:text-white'
+          ? 'text-white bg-slate-800 md:bg-red-700' 
+          : 'text-gray-400 hover:text-white hover:bg-slate-800'
       }`}
     >
-      <Icon size={18} />
-      <span>{label}</span>
+      <Icon size={20} />
+      <span className="text-[10px] md:text-sm font-medium mt-1 md:mt-0 hidden md:block">{label}</span>
     </button>
   );
 
@@ -691,70 +708,123 @@ export default function App() {
   return (
     <div className={darkMode ? 'dark' : ''}>
       <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-900 transition-colors duration-200 pb-12">
-        {/* Header */}
+        {/* Header (Barra Fija) */}
         <header className="bg-slate-900 dark:bg-black text-white shadow-md sticky top-0 z-50 border-b border-slate-700">
           <div className="container mx-auto px-4 py-3">
             <div className="flex justify-between items-center">
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2 cursor-pointer" onClick={() => { setSearchTerm(''); setBatchSearchResults(null); setShowAllRecords(false); setView('LIST'); }}>
-                  <div className="w-8 h-8 bg-red-600 flex items-center justify-center rounded font-bold text-white">M</div>
-                  <h1 className="text-xl font-bold tracking-tight hidden sm:block">MetroMaint <span className="font-light opacity-75">BCN</span></h1>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <button 
-                    onClick={() => setDarkMode(!darkMode)}
-                    className="p-1.5 rounded-full hover:bg-slate-700 text-yellow-400 transition-colors"
-                  >
-                    {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-                  </button>
-
-                  {/* PWA INSTALL BUTTON (Visible only if installable) */}
-                  {showInstallBtn && (
-                    <button 
-                      onClick={handleInstallClick}
-                      className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-md animate-in fade-in zoom-in"
-                    >
-                      <Smartphone size={14} /> Instalar
-                    </button>
-                  )}
-                </div>
-
-                {/* Util Buttons - Simplified */}
-                <input type="file" accept=".csv" className="hidden" ref={importInputRef} onChange={handleImportChange}/>
-                <button onClick={handleImportClick} className="p-1.5 rounded-full hover:bg-slate-700 text-blue-400 transition-colors hidden sm:block" title="Importar CSV"><UploadCloud size={20} /></button>
-                <button onClick={handleExportBackup} className="p-1.5 rounded-full hover:bg-slate-700 text-green-400 transition-colors hidden sm:block" title="Backup"><Download size={20} /></button>
-                <button onClick={() => setShowMassDeleteModal(true)} className="p-1.5 rounded-full hover:bg-slate-700 text-red-500 transition-colors hidden sm:block" title="Reset"><Trash2 size={20} /></button>
-              </div>
               
-              {/* Desktop Nav */}
-              <nav className="hidden md:flex space-x-1">
+              {/* LOGO AREA */}
+              <div className="flex items-center space-x-2 cursor-pointer shrink-0" onClick={() => { setSearchTerm(''); setBatchSearchResults(null); setShowAllRecords(false); setView('LIST'); }}>
+                <div className="w-8 h-8 bg-red-600 flex items-center justify-center rounded font-bold text-white">M</div>
+                <h1 className="text-xl font-bold tracking-tight hidden sm:block">MetroMaint <span className="font-light opacity-75">BCN</span></h1>
+              </div>
+
+              {/* CENTER NAV (ALWAYS VISIBLE) - Icons on Mobile, Text on Desktop */}
+              <nav className="flex items-center space-x-1 md:space-x-2 mx-2">
                 <NavButton label="Inicio" target="LIST" icon={ListIcon} active={view === 'LIST'} />
                 <NavButton label="Estadísticas" target="DASHBOARD" icon={LayoutGrid} active={view === 'DASHBOARD'} />
                 <NavButton label="Asistente" target="AI_ASSISTANT" icon={Bot} active={view === 'AI_ASSISTANT'} />
               </nav>
 
-              <div className="flex items-center space-x-2">
-                <button className="md:hidden p-2 text-gray-300" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-                    {mobileMenuOpen ? <X /> : <Menu />}
+              {/* RIGHT SIDE: Hamburger Menu Trigger */}
+              <div className="flex items-center">
+                <button ref={menuBtnRef} className="p-2 text-gray-300 hover:text-white rounded hover:bg-slate-800 transition-colors" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+                    {mobileMenuOpen ? <X size={24}/> : <Menu size={24}/>}
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Mobile Nav Dropdown */}
+          {/* Dropdown Menu (Config & Tools) */}
           {mobileMenuOpen && (
-            <div className="md:hidden bg-slate-800 dark:bg-slate-900 border-t border-slate-700 px-4 py-2 space-y-2">
-              <NavButton label="Inicio" target="LIST" icon={ListIcon} active={view === 'LIST'} />
-              <NavButton label="Estadísticas" target="DASHBOARD" icon={LayoutGrid} active={view === 'DASHBOARD'} />
-              <NavButton label="Asistente" target="AI_ASSISTANT" icon={Bot} active={view === 'AI_ASSISTANT'} />
-              <div className="border-t border-slate-700 pt-2 flex justify-between">
-                 <span className="text-xs text-gray-400">Herramientas:</span>
-                 <div className="flex gap-4">
-                     <button onClick={handleImportClick} className="text-blue-400"><UploadCloud size={20}/></button>
-                     <button onClick={handleExportBackup} className="text-green-400"><Download size={20}/></button>
-                     <button onClick={() => setShowMassDeleteModal(true)} className="text-red-500"><Trash2 size={20}/></button>
-                 </div>
+            <div ref={menuRef} className="bg-slate-800 dark:bg-slate-900 border-t border-slate-700 px-4 py-4 space-y-4 animate-in slide-in-from-top-2 duration-200 shadow-xl">
+              
+              {/* SETTINGS GROUP */}
+              <div>
+                <h3 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
+                   <Settings size={12}/> Configuración
+                </h3>
+                
+                {/* Dark Mode Toggle */}
+                <button 
+                  onClick={() => {
+                      setDarkMode(!darkMode);
+                      showToast(!darkMode ? 'Modo Oscuro activado' : 'Modo Claro activado', 'info');
+                  }}
+                  className="w-full flex items-center justify-between p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700 transition-colors text-slate-200"
+                >
+                  <div className="flex items-center gap-3">
+                     {darkMode ? <Moon size={18} className="text-yellow-400"/> : <Sun size={18} className="text-yellow-400"/>}
+                     <span className="text-sm font-medium">Modo {darkMode ? 'Oscuro' : 'Claro'}</span>
+                  </div>
+                  <div className={`w-8 h-4 rounded-full relative transition-colors ${darkMode ? 'bg-blue-600' : 'bg-slate-500'}`}>
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${darkMode ? 'translate-x-4' : 'translate-x-0.5'}`} ></div>
+                  </div>
+                </button>
+              </div>
+
+              {/* DEV MODE & FOOTER (DISCREET) */}
+              <div className="pt-4 border-t border-slate-700/50">
+                 {!devMode ? (
+                    // LOCKED: SHOW DISCREET TRIGGER
+                    showPinInput ? (
+                        <form onSubmit={handleUnlockDevMode} className="flex items-center gap-2 animate-in fade-in">
+                            <input 
+                                type="password" 
+                                value={pinInputValue}
+                                onChange={(e) => setPinInputValue(e.target.value)}
+                                placeholder="PIN..."
+                                autoFocus
+                                className="flex-1 px-2 py-1.5 bg-slate-900 border border-slate-600 rounded text-xs text-white outline-none focus:border-slate-400 placeholder:text-slate-600 font-mono"
+                            />
+                            <button type="submit" className="p-1.5 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition-colors">
+                                <Check size={14} />
+                            </button>
+                            <button type="button" onClick={() => { setShowPinInput(false); setPinInputValue(''); }} className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors">
+                                <X size={14} />
+                            </button>
+                        </form>
+                    ) : (
+                        <div className="flex justify-between items-center">
+                            <p className="text-[10px] text-slate-600">v1.3.0 • MetroMaint BCN</p>
+                            <button onClick={() => setShowPinInput(true)} className="p-2 text-slate-700 hover:text-slate-500 transition-colors opacity-50 hover:opacity-100" title="Admin">
+                                <Lock size={12} />
+                            </button>
+                        </div>
+                    )
+                 ) : (
+                    // UNLOCKED: SHOW TOOLS COMPACTLY
+                    <div className="animate-in fade-in slide-in-from-bottom-1">
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                                <Terminal size={10}/> Admin Tools
+                            </span>
+                            <button onClick={handleLockDevMode} className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1">
+                                <Unlock size={10} /> Bloquear
+                            </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-2">
+                            {/* Hidden Inputs */}
+                            <input type="file" accept=".csv" className="hidden" ref={importInputRef} onChange={handleImportChange}/>
+                            
+                            <button onClick={handleImportClick} className="flex flex-col items-center justify-center p-2 rounded bg-slate-700 hover:bg-slate-600 transition-colors gap-1 text-blue-400">
+                               <UploadCloud size={16}/>
+                               <span className="text-[9px]">Importar</span>
+                            </button>
+                            
+                            <button onClick={handleExportBackup} className="flex flex-col items-center justify-center p-2 rounded bg-slate-700 hover:bg-slate-600 transition-colors gap-1 text-green-400">
+                               <Download size={16}/>
+                               <span className="text-[9px]">Backup</span>
+                            </button>
+                            
+                            <button onClick={() => setShowMassDeleteModal(true)} className="flex flex-col items-center justify-center p-2 rounded bg-slate-700 hover:bg-red-900/30 transition-colors gap-1 text-red-500 hover:text-red-400 border border-transparent hover:border-red-500/50">
+                               <Trash2 size={16}/>
+                               <span className="text-[9px]">Reset BD</span>
+                            </button>
+                        </div>
+                    </div>
+                 )}
               </div>
             </div>
           )}
