@@ -1,7 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+mport React, { useState, useRef, useEffect } from 'react';
 import { DeviceType, MaintenanceRecord, ConsumptionReadings, EquipmentStatus } from '../types';
-import { Camera, Save, X, Loader2, AlertTriangle, Zap, CheckCircle2, Activity, Calculator, Watch, Play, Square, RotateCcw, Timer, Lock, Unlock, ShieldCheck, MapPin, Waves, Smartphone } from 'lucide-react';
-import { GeminiService } from '../services/geminiService';
+import { Save, X, Loader2, AlertTriangle, Zap, CheckCircle2, Activity, Calculator, Watch, Play, Square, RotateCcw, Timer, Lock, Unlock, ShieldCheck, MapPin, Waves } from 'lucide-react';
 
 interface RecordFormProps {
   initialData?: MaintenanceRecord | null;
@@ -62,14 +61,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
   const [vibMax, setVibMax] = useState(0); // Max held value
   const [isMeasuringVib, setIsMeasuringVib] = useState(false);
   const [vibError, setVibError] = useState<string | null>(null);
-  const velocityRef = useRef(0); // To integrate acceleration
 
   // Ensure nested objects exist
   if (!formData.readings) formData.readings = {};
   if (!formData.status) formData.status = EquipmentStatus.OPERATIONAL;
-
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentTypeMap = TYPE_MAPPING[formData.deviceType as DeviceType];
   const activePrefix = currentTypeMap?.matrixPrefix || '';
@@ -138,20 +133,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
               // Calculate Magnitude of acceleration vector (m/s^2)
               const a = Math.sqrt(acc.x**2 + acc.y**2 + acc.z**2);
               
-              // Simple Integration to get Velocity (V = V0 + a*t)
-              // We use a "Leaky Integrator" to act as a High-Pass Filter and prevent drift
-              // V_new = (V_old + a * dt) * decay_factor
-              const dt = 0.016; // Approx 60Hz
-              const decay = 0.90; // Leaks 10% per frame to center around 0
-              
-              velocityRef.current = (velocityRef.current + (a * dt)) * decay;
-              
-              // Convert m/s to mm/s and get absolute value
-              const v_mms = Math.abs(velocityRef.current * 1000);
-
+              // Direct Reading in m/s² (No integration)
               // Smooth visuals
-              setVibValue(prev => (prev * 0.7) + (v_mms * 0.3));
-              setVibMax(prev => Math.max(prev, v_mms));
+              setVibValue(prev => (prev * 0.7) + (a * 0.3));
+              setVibMax(prev => Math.max(prev, a));
           }
       };
 
@@ -181,7 +166,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
 
       return () => {
           window.removeEventListener('devicemotion', handleMotion);
-          velocityRef.current = 0;
       };
   }, [isMeasuringVib]);
 
@@ -260,7 +244,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
       } else {
           setVibValue(0);
           setVibMax(0);
-          velocityRef.current = 0;
           setIsMeasuringVib(true);
       }
   };
@@ -454,58 +437,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
     } as MaintenanceRecord);
   };
 
-  const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsAnalyzing(true);
-    setFormError(null);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-        try {
-            const base64 = reader.result as string;
-            const base64Data = base64.split(',')[1];
-            const extracted = await GeminiService.extractDataFromImage(base64Data);
-            
-            let normalizedCode = extracted.deviceCode || '';
-            if (normalizedCode) {
-                const clean = normalizedCode.toUpperCase().replace(/[^A-Z0-9]/g, ''); 
-                if (clean.length > 2) {
-                    const parts = normalizedCode.match(/([A-Z]{2})\s*(\d{1,2})[- ](\d{1,2})[- ](\d{1,2})/);
-                    if (parts) {
-                        const [, p, n1, n2, n3] = parts;
-                        normalizedCode = `${p} ${n1.padStart(2, '0')}-${n2.padStart(2, '0')}-${n3.padStart(2, '0')}`;
-                    }
-                }
-            }
-
-            setFormData(prev => ({
-                ...prev,
-                station: extracted.station || prev.station,
-                nes: extracted.nes || prev.nes,
-                deviceCode: normalizedCode || prev.deviceCode,
-                deviceType: extracted.deviceType || prev.deviceType,
-                status: extracted.status || prev.status,
-                location: extracted.location || prev.location,
-                readings: { ...prev.readings, ...extracted.readings }
-            }));
-            
-            if (normalizedCode && !normalizedCode.match(/^[A-Z]{2}\s\d{2}-\d{2}-\d{2}$/)) {
-                setIsManualCode(true);
-            } else {
-                setIsManualCode(false);
-            }
-
-        } catch (error) {
-            setFormError("No se pudo procesar la imagen.");
-        } finally {
-            setIsAnalyzing(false);
-            if (fileInputRef.current) fileInputRef.current.value = '';
-        }
-    };
-    reader.readAsDataURL(file);
-  };
-
   const getDeviceCodeNumeric = () => {
       if (!formData.deviceCode) return '';
       if (activePrefix) return formData.deviceCode.replace(activePrefix, '').trim();
@@ -537,18 +468,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
             </div>
         )}
 
-        {/* Camera */}
-        <div className="mb-6">
-            <input type="file" accept="image/*" capture="environment" className="hidden" ref={fileInputRef} onChange={handleCameraCapture} />
-            <button 
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isAnalyzing}
-                className="w-full bg-slate-100 dark:bg-slate-800 border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-            >
-                {isAnalyzing ? <Loader2 className="animate-spin" size={20}/> : <Camera size={20} />}
-                {isAnalyzing ? 'Analizando...' : 'Escanear con Cámara'}
-            </button>
-        </div>
+        {/* Removed Camera Button Section as requested */}
 
         <form onSubmit={handleSubmit} className="space-y-3">
           
@@ -768,18 +688,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
                         </label>
                         <input type="number" inputMode="numeric" step="1" value={formData.readings?.filling || ''} onChange={(e) => handleReadingsChange('filling', e.target.value)} className="w-full p-2 text-sm bg-white dark:bg-black border border-gray-300 dark:border-gray-600 rounded-lg text-black dark:text-white" placeholder="0" />
                     </div>
-                    {/* B1 */}
+                    {/* B1 - MODIFICADO ETIQUETA */}
                     <div className="relative">
                         <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block flex justify-between">
-                            Vaciado B1
+                            Vcdo.B1
                             <button type="button" onClick={() => openTimeTool('emptyingB1')} className="text-blue-500 hover:text-blue-600"><Watch size={14}/></button>
                         </label>
                         <input type="number" inputMode="numeric" step="1" value={formData.readings?.emptyingB1 || ''} onChange={(e) => handleReadingsChange('emptyingB1', e.target.value)} className="w-full p-2 text-sm bg-white dark:bg-black border border-gray-300 dark:border-gray-600 rounded-lg text-black dark:text-white" placeholder="0" />
                     </div>
-                    {/* B2 */}
+                    {/* B2 - MODIFICADO ETIQUETA */}
                     <div className="relative">
                         <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block flex justify-between">
-                            Vaciado B2
+                            Vcdo.B2
                             <button type="button" onClick={() => openTimeTool('emptyingB2')} className="text-blue-500 hover:text-blue-600"><Watch size={14}/></button>
                         </label>
                         <input type="number" inputMode="numeric" step="1" value={formData.readings?.emptyingB2 || ''} onChange={(e) => handleReadingsChange('emptyingB2', e.target.value)} className="w-full p-2 text-sm bg-white dark:bg-black border border-gray-300 dark:border-gray-600 rounded-lg text-black dark:text-white" placeholder="0" />
@@ -788,11 +708,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
              </div>
           )}
 
-          {/* Vibraciones (Vents) */}
+          {/* Vibraciones (Vents) - MODIFICADO ETIQUETA Y UNIDADES */}
           {(formData.deviceType === DeviceType.VENT_ESTACION || formData.deviceType === DeviceType.VENT_TUNEL) && (
             <div className="mt-3">
                <label className="block text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
-                   <Activity size={16} className="text-purple-500" /> Vibraciones (mm/s)
+                   <Activity size={16} className="text-purple-500" /> Vibraciones (m/s²)
                </label>
                <div className="grid grid-cols-2 gap-2">
                    <div className="relative">
@@ -906,7 +826,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
                 <div className="flex justify-between items-center mb-4 border-b border-gray-100 dark:border-slate-700 pb-3">
                     <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
                         <Watch size={18} className="text-blue-500"/>
-                        Asistente: {activeTimeField === 'filling' ? 'Llenado' : activeTimeField === 'emptyingB1' ? 'Vaciado B1' : 'Vaciado B2'}
+                        Asistente: {activeTimeField === 'filling' ? 'Llenado' : activeTimeField === 'emptyingB1' ? 'Vcdo.B1' : 'Vcdo.B2'}
                     </h3>
                     <button onClick={closeTimeTool} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                         <X size={20}/>
@@ -999,7 +919,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
         </div>
       )}
 
-      {/* VIBRATION TOOL MODAL */}
+      {/* VIBRATION TOOL MODAL - UPDATED UNITS AND MATH */}
       {activeVibrationField && (
         <div className="fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
              <div className="bg-white dark:bg-slate-800 rounded-lg shadow-2xl max-w-sm w-full p-5 border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200 relative overflow-hidden">
@@ -1029,7 +949,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
                 ) : (
                     <div className="flex flex-col items-center mb-6 relative z-10">
                         <div className="w-32 h-32 rounded-full border-4 border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center mb-4 relative">
-                             {/* Gauge fill based on value (clamped to 20mm/s for visuals) */}
+                             {/* Gauge fill based on value (clamped to 20 m/s^2 for visuals) */}
                              <div 
                                 className="absolute bottom-0 left-0 right-0 bg-purple-500/20 transition-all duration-100 rounded-b-full" 
                                 style={{ height: `${Math.min((vibValue / 20) * 100, 100)}%` }}
@@ -1038,7 +958,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
                              <span className="text-3xl font-bold font-mono text-slate-800 dark:text-white tabular-nums">
                                  {vibValue.toFixed(1)}
                              </span>
-                             <span className="text-xs text-gray-500 dark:text-gray-400 font-bold uppercase">mm/s</span>
+                             <span className="text-xs text-gray-500 dark:text-gray-400 font-bold uppercase">m/s²</span>
                         </div>
                         
                         <div className="flex items-center gap-2 mb-6">
@@ -1054,7 +974,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({ initialData, existingRec
                             </p>
                         ) : (
                             <p className="text-xs text-center text-purple-600 dark:text-purple-400 animate-pulse mb-4 font-bold">
-                                Midiendo... Mantén el dispositivo estable.
+                                Midiendo Aceleración...
                             </p>
                         )}
 
